@@ -90,36 +90,49 @@ export async function getFeedbackByInterviewId(
   return { id: feedbackDoc.id, ...feedbackDoc.data() } as Feedback;
 }
 
-export async function getLatestInterviews(
-  params: GetLatestInterviewsParams
-): Promise<Interview[] | null> {
-  const { userId, limit = 20 } = params;
+export async function getLatestInterviews(params: { userId?: string }) {
+  const { userId } = params || {};
 
-  const interviews = await db
-    .collection("interviews")
-    .orderBy("createdAt", "desc")
-    .where("finalized", "==", true)
-    .where("userId", "!=", userId)
-    .limit(limit)
-    .get();
+  let queryRef = db.collection("interviews");
 
-  return interviews.docs.map((doc) => ({
-    id: doc.id,
-    ...doc.data(),
-  })) as Interview[];
+  // Apply filters that do not force composite indexes
+  if (userId) {
+    queryRef = queryRef.where("userId", "==", userId);
+  }
+
+  // Do NOT use orderBy here to avoid composite index requirement
+  const snapshot = await queryRef.get();
+
+  const interviews = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as any));
+
+  // Sort in memory by createdAt desc
+  interviews.sort((a, b) => {
+    const aTime = new Date(a?.createdAt ?? 0).getTime();
+    const bTime = new Date(b?.createdAt ?? 0).getTime();
+    return bTime - aTime;
+  });
+
+  return interviews as Interview[];
 }
 
-export async function getInterviewsByUserId(
-  userId: string
-): Promise<Interview[] | null> {
-  const interviews = await db
+export async function getInterviewsByUserId(userId: string) {
+  if (!userId) {
+    throw new Error("userId is required");
+  }
+  const snapshot = await db
     .collection("interviews")
     .where("userId", "==", userId)
-    .orderBy("createdAt", "desc")
+    // Removed orderBy to avoid composite index requirement
     .get();
 
-  return interviews.docs.map((doc) => ({
-    id: doc.id,
-    ...doc.data(),
-  })) as Interview[];
+  const interviews = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as any));
+
+  // Sort in memory by createdAt descending
+  interviews.sort((a, b) => {
+    const aTime = new Date(a.createdAt ?? 0).getTime();
+    const bTime = new Date(b.createdAt ?? 0).getTime();
+    return bTime - aTime;
+  });
+
+  return interviews as Interview[];
 }
