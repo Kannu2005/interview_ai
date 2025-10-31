@@ -13,13 +13,31 @@ import {
 async function Home() {
   const user = await getCurrentUser();
 
+  if (!user) {
+    return (
+      <div className="text-center mt-10">
+        <p>Please sign in to view your interviews</p>
+      </div>
+    );
+  }
+
   const [userInterviews, allInterview] = await Promise.all([
-    getInterviewsByUserId(user?.id!),
-    getLatestInterviews({ userId: user?.id! }),
+    getInterviewsByUserId(user.id).catch(() => []),
+    getLatestInterviews({ userId: user.id }).catch(() => []),
   ]);
 
-  const hasPastInterviews = userInterviews?.length! > 0;
-  const hasUpcomingInterviews = allInterview?.length! > 0;
+  // Filter completed interviews (those with status: "completed" or finalized: true)
+  const completedInterviews = userInterviews?.filter(
+    (interview: any) => interview?.status === "completed" || interview?.finalized === true
+  ) || [];
+
+  // Filter upcoming/pending interviews
+  const upcomingInterviews = allInterview?.filter(
+    (interview: any) => interview?.status !== "completed" && interview?.finalized !== true
+  ) || [];
+
+  const hasPastInterviews = completedInterviews.length > 0;
+  const hasUpcomingInterviews = upcomingInterviews.length > 0;
 
   return (
     <>
@@ -45,19 +63,19 @@ async function Home() {
       </section>
 
       <section className="flex flex-col gap-6 mt-8">
-        <h2>Your Interviews</h2>
+        <h2>Your Completed Interviews</h2>
 
         <div className="interviews-section">
           {hasPastInterviews ? (
-            userInterviews?.map((interview) => (
+            completedInterviews.map((interview: any) => (
               <InterviewCard
                 key={interview.id}
-                userId={user?.id}
+                userId={user.id}
                 interviewId={interview.id}
-                role={interview.role}
-                type={interview.type}
-                techstack={interview.techstack}
-                createdAt={interview.createdAt}
+                role={interview.role || "Interview"}
+                type={interview.type || "Mixed"}
+                techstack={interview.techstack || []}
+                createdAt={interview.createdAt || interview.completedAt}
               />
             ))
           ) : (
@@ -67,18 +85,18 @@ async function Home() {
       </section>
 
       <section className="flex flex-col gap-6 mt-8">
-        <h2>Take Interviews</h2>
+        <h2>Available Interviews</h2>
 
         <div className="interviews-section">
           {hasUpcomingInterviews ? (
-            allInterview?.map((interview) => (
+            upcomingInterviews.map((interview: any) => (
               <InterviewCard
                 key={interview.id}
-                userId={user?.id}
+                userId={user.id}
                 interviewId={interview.id}
-                role={interview.role}
-                type={interview.type}
-                techstack={interview.techstack}
+                role={interview.role || "Interview"}
+                type={interview.type || "Mixed"}
+                techstack={interview.techstack || []}
                 createdAt={interview.createdAt}
               />
             ))

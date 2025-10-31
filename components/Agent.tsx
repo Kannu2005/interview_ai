@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { vapi } from "@/lib/vapi.sdk";
 import { interviewer } from "@/constants";
-import { createFeedback } from "@/lib/actions/general.action";
+import { createFeedback, saveInterviewData, createInterviewDocument } from "@/lib/actions/general.action";
 
 enum CallStatus {
   INACTIVE = "INACTIVE",
@@ -90,6 +90,17 @@ const Agent = ({
     const handleGenerateFeedback = async (messages: SavedMessage[]) => {
       console.log("handleGenerateFeedback");
 
+      // First, save interview transcript data to Firestore
+      if (interviewId && userId && messages.length > 0) {
+        const saveResult = await saveInterviewData({
+          interviewId: interviewId,
+          userId: userId,
+          transcript: messages,
+        });
+        console.log("Interview data save result:", saveResult);
+      }
+
+      // Then, generate and save feedback
       const { success, feedbackId: id } = await createFeedback({
         interviewId: interviewId!,
         userId: userId!,
@@ -107,7 +118,30 @@ const Agent = ({
 
     if (callStatus === CallStatus.FINISHED) {
       if (type === "generate") {
-        router.push("/");
+        // For generate type, create interview document if it doesn't exist
+        const handleGenerateInterview = async () => {
+          if (userId && messages.length > 0) {
+            if (interviewId) {
+              // Interview document exists, just update it
+              await saveInterviewData({
+                interviewId: interviewId,
+                userId: userId,
+                transcript: messages,
+              });
+            } else {
+              // No interview document exists, create a new one
+              const result = await createInterviewDocument({
+                userId: userId,
+                transcript: messages,
+              });
+              if (result.success) {
+                console.log("✅ Created interview document for generate type:", result.interviewId);
+              }
+            }
+          }
+          router.push("/");
+        };
+        handleGenerateInterview();
       } else {
         handleGenerateFeedback(messages);
       }
@@ -117,26 +151,61 @@ const Agent = ({
   const handleCall = async () => {
     setCallStatus(CallStatus.CONNECTING);
 
-    if (type === "generate") {
-      await vapi.start(process.env.NEXT_PUBLIC_VAPI_WORKFLOW_ID!, {
-        variableValues: {
-          username: userName,
-          userid: userId,
-        },
-      });
-    } else {
-      let formattedQuestions = "";
-      if (questions) {
-        formattedQuestions = questions
-          .map((question) => `- ${question}`)
-          .join("\n");
+    try {
+      // Verify VAPI is initialized
+      if (!vapi) {
+        console.error("VAPI is not initialized");
+        alert("VAPI is not initialized. Please check your VAPI Web Token.");
+        setCallStatus(CallStatus.INACTIVE);
+        return;
       }
 
-      await vapi.start(interviewer, {
-        variableValues: {
-          questions: formattedQuestions,
-        },
+      if (type === "generate") {
+        // Demo: Hardcoded workflow ID - replace with your actual VAPI workflow ID
+        const workflowId = "9d1b9b7f-54c5-4390-8be1-814ddd8d42f8"; // TODO: Replace this with your actual workflow ID
+        if (!workflowId) {
+          console.error("Workflow ID is not set");
+          setCallStatus(CallStatus.INACTIVE);
+          return;
+        }
+        console.log("Starting VAPI call with workflowId:", workflowId);
+        await vapi.start(workflowId, {
+          variableValues: {
+            username: userName,
+            userid: userId,
+          },
+        });
+      } else {
+        let formattedQuestions = "";
+        if (questions) {
+          formattedQuestions = questions
+            .map((question) => `- ${question}`)
+            .join("\n");
+        }
+
+        // Check if interviewer config is valid
+        if (!interviewer) {
+          console.error("Interviewer configuration is missing");
+          setCallStatus(CallStatus.INACTIVE);
+          return;
+        }
+
+        await vapi.start(interviewer, {
+          variableValues: {
+            questions: formattedQuestions,
+          },
+        });
+      }
+    } catch (error: any) {
+      console.error("Error starting VAPI call:", error);
+      console.error("Error details:", {
+        message: error?.message,
+        code: error?.code,
+        status: error?.status,
+        response: error?.response,
       });
+      alert(`Failed to start call: ${error?.message || "Unknown error"}`);
+      setCallStatus(CallStatus.INACTIVE);
     }
   };
 

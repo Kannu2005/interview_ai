@@ -136,3 +136,88 @@ export async function getInterviewsByUserId(userId: string) {
 
   return interviews as Interview[];
 }
+
+// Save interview transcript and completion data
+export async function saveInterviewData(params: {
+  interviewId: string;
+  userId: string;
+  transcript: Array<{ role: string; content: string }>;
+}) {
+  const { interviewId, userId, transcript } = params;
+
+  try {
+    if (!interviewId) {
+      console.error("Interview ID is required");
+      return { success: false, message: "Interview ID is required" };
+    }
+
+    if (!userId) {
+      console.error("User ID is required");
+      return { success: false, message: "User ID is required" };
+    }
+
+    // Get existing interview data first to preserve it
+    const interviewDoc = await db.collection("interviews").doc(interviewId).get();
+    const existingData = interviewDoc.exists ? interviewDoc.data() : {};
+
+    // Update the interview document with transcript and completion data
+    // Preserve existing fields and only update/add new ones
+    await db.collection("interviews").doc(interviewId).set({
+      ...existingData, // Preserve existing data
+      transcript: transcript,
+      completedAt: new Date().toISOString(),
+      status: "completed",
+      finalized: true, // Mark as finalized
+      updatedAt: new Date().toISOString(),
+      userId: userId, // Ensure userId is set
+    }, { merge: true });
+
+    console.log("✅ Interview data saved successfully:", interviewId);
+    return { success: true, message: "Interview data saved successfully" };
+  } catch (error: any) {
+    console.error("❌ Error saving interview data:", error);
+    return { success: false, message: error?.message || "Failed to save interview data" };
+  }
+}
+
+// Create a new interview document for generate type interviews
+export async function createInterviewDocument(params: {
+  userId: string;
+  transcript?: Array<{ role: string; content: string }>;
+}) {
+  const { userId, transcript } = params;
+
+  try {
+    if (!userId) {
+      console.error("User ID is required");
+      return { success: false, message: "User ID is required" };
+    }
+
+    const interviewData: any = {
+      userId: userId,
+      role: "AI Generated Interview",
+      type: "Mixed",
+      level: "Intermediate",
+      techstack: [],
+      questions: [],
+      finalized: true,
+      status: transcript && transcript.length > 0 ? "completed" : "pending",
+      coverImage: "/pattern.png",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    if (transcript && transcript.length > 0) {
+      interviewData.transcript = transcript;
+      interviewData.completedAt = new Date().toISOString();
+    }
+
+    const interviewRef = await db.collection("interviews").add(interviewData);
+    console.log("✅ New interview document created:", interviewRef.id);
+
+    return { success: true, interviewId: interviewRef.id };
+  } catch (error: any) {
+    console.error("❌ Error creating interview document:", error);
+    return { success: false, message: error?.message || "Failed to create interview document" };
+  }
+}
